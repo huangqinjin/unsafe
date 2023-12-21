@@ -1,0 +1,162 @@
+name: Build & Run
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  Linux:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          sudo apt-get install ninja-build msitools wine64-development winbind
+
+      - name: Checkout msvc-wine
+        uses: actions/checkout@v4
+        with:
+          repository: mstorsjo/msvc-wine
+          path: msvc-wine
+
+      - name: Install msvc-wine
+        run: |
+          sudo mkdir -m 777 /opt/msvc
+          cd msvc-wine
+          ./vsdownload.py --accept-license --dest /opt/msvc --msvc-version 17.6
+          rm -fr $(ls -d /opt/msvc/VC/Tools/MSVC/* | tail -n+2)
+          ./install.sh /opt/msvc
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: cmake -P workflow.cmake -- clang
+
+      - name: x-clang-cl
+        run: |
+          export PATH=$(llvm-config-15 --prefix)/bin:$PATH
+          cmake -P workflow.cmake -- x-clang-cl
+
+      - name: wine-msvc
+        run: cmake -P workflow.cmake -- wine-msvc
+
+  macOS:
+    runs-on: macos-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          brew install msitools ninja
+          brew tap homebrew/cask-versions
+          brew update
+          brew install --cask --no-quarantine wine-staging
+
+      - name: Checkout msvc-wine
+        uses: actions/checkout@v4
+        with:
+          repository: mstorsjo/msvc-wine
+          path: msvc-wine
+
+      - name: Install msvc-wine
+        run: |
+          sudo mkdir -m 777 /opt/msvc
+          cd msvc-wine
+          ./vsdownload.py --accept-license --dest /opt/msvc --msvc-version 17.6
+          rm -fr $(ls -d /opt/msvc/VC/Tools/MSVC/* | tail -n+2)
+          ./install.sh /opt/msvc
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: |
+          for f in $(brew --prefix gcc)/bin/*-*; do
+            [ -e ${f%-*} ] || ln -s ${f##*/} ${f%-*}
+          done
+
+          export PATH=$(brew --prefix gcc)/bin:$PATH
+          cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: |
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          export LDFLAGS="-L$(brew --prefix llvm@15)/lib/c++ -Wl,-rpath,$(brew --prefix llvm@15)/lib/c++"
+          cmake -P workflow.cmake -- clang
+
+      - name: x-clang-cl
+        run: |
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          cmake -P workflow.cmake -- x-clang-cl
+
+      - name: wine-msvc
+        run: cmake -P workflow.cmake -- wine-msvc
+
+  Windows:
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          choco install ninja
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          release: false
+          update: true
+          install: >-
+            mingw64/mingw-w64-x86_64-gcc
+            ucrt64/mingw-w64-ucrt-x86_64-gcc
+            clang64/mingw-w64-clang-x86_64-clang
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: cmake -P workflow.cmake -- clang
+        
+      - name: clang-cl
+        # llvm-mt is available on Windows since LLVM 17.
+        if: false
+        run: cmake -P workflow.cmake -- clang-cl
+     
+      - name: msbuild
+        run: cmake -P workflow.cmake -- msbuild
+
+      - name: msbuild-clang
+        run: cmake -P workflow.cmake -- msbuild-clang
+        
+      - name: mingw-w64
+        run: cmake -P workflow.cmake -- mingw-w64
+
+      - name: mingw-ucrt64
+        run: cmake -P workflow.cmake -- mingw-ucrt64
+
+      - name: mingw-clang64
+        run: |
+          # https://github.com/msys2/MINGW-packages/issues/19279
+          cmd /c mklink /J C:\msys64\clang64\x86_64-w64-mingw32 C:\msys64\clang64
+          cmake -P workflow.cmake -- mingw-clang64
