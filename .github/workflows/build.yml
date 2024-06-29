@@ -1,0 +1,151 @@
+name: Build & Run
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  Linux:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          sudo apt-get install wine64 winbind msitools ninja-build
+
+      - name: Checkout msvc-wine
+        uses: actions/checkout@v4
+        with:
+          repository: mstorsjo/msvc-wine
+
+      - name: Install msvc-wine
+        run: |
+          sudo mkdir -m 777 /opt/msvc
+          ./vsdownload.py --accept-license --dest /opt/msvc --msvc-version 17.6
+          rm -fr $(ls -d /opt/msvc/VC/Tools/MSVC/* | tail -n+2)
+          ./install.sh /opt/msvc
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: cmake -P workflow.cmake -- clang
+
+      - name: x-clang-cl
+        run: |
+          export PATH=$(llvm-config-15 --prefix)/bin:$PATH
+          cmake -P workflow.cmake -- x-clang-cl
+
+      - name: msvc-wine
+        run: cmake -P workflow.cmake -- msvc-wine
+
+  macOS:
+    runs-on: macos-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app
+          brew install wine-stable msitools ninja
+
+      - name: Checkout msvc-wine
+        uses: actions/checkout@v4
+        with:
+          repository: mstorsjo/msvc-wine
+
+      - name: Install msvc-wine
+        run: |
+          sudo mkdir -m 777 /opt/msvc
+          ./vsdownload.py --accept-license --dest /opt/msvc --msvc-version 17.6
+          rm -fr $(ls -d /opt/msvc/VC/Tools/MSVC/* | tail -n+2)
+          ./install.sh /opt/msvc
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: |
+          for f in $(brew --prefix gcc)/bin/*-*; do
+            [ -e ${f%-*} ] || ln -s ${f##*/} ${f%-*}
+          done
+
+          export PATH=$(brew --prefix gcc)/bin:$PATH
+          cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: |
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          export LDFLAGS="-L$(brew --prefix llvm@15)/lib/c++ -Wl,-rpath,$(brew --prefix llvm@15)/lib/c++"
+          cmake -P workflow.cmake -- clang
+
+      - name: x-clang-cl
+        run: |
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          cmake -P workflow.cmake -- x-clang-cl
+
+      - name: msvc-wine
+        run: cmake -P workflow.cmake -- msvc-wine
+
+  Windows:
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          choco install --no-progress ninja
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          release: false
+          update: true
+          install: >-
+            mingw64/mingw-w64-x86_64-gcc
+            ucrt64/mingw-w64-ucrt-x86_64-gcc
+            clang64/mingw-w64-clang-x86_64-clang
+
+      - uses: actions/checkout@v4
+
+      - name: default
+        run: cmake -P workflow.cmake -- default
+
+      - name: gcc
+        run: cmake -P workflow.cmake -- gcc
+
+      - name: clang
+        run: cmake -P workflow.cmake -- clang
+        
+      - name: clang-cl
+        run: cmake -P workflow.cmake -- clang-cl
+     
+      - name: msbuild
+        run: cmake -P workflow.cmake -- msbuild
+
+      - name: msbuild-clang
+        run: cmake -P workflow.cmake -- msbuild-clang
+        
+      - name: mingw-w64
+        run: cmake -P workflow.cmake -- mingw-w64
+
+      - name: mingw-ucrt64
+        run: cmake -P workflow.cmake -- mingw-ucrt64
+
+      - name: mingw-clang64
+        run: cmake -P workflow.cmake -- mingw-clang64
